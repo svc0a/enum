@@ -1,8 +1,10 @@
 package gen
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/printer"
 	"go/token"
@@ -10,6 +12,7 @@ import (
 	"strings"
 )
 
+// Generate 解析并生成代码
 func Generate(filename string) {
 	// 解析文件AST
 	fset := token.NewFileSet()
@@ -81,15 +84,33 @@ func Generate(filename string) {
 	}
 	defer f.Close()
 
-	if err := printer.Fprint(f, fset, file); err != nil {
-		fmt.Println("Error writing file:", err)
+	// 使用缓冲区捕获打印的代码
+	var buf bytes.Buffer
+
+	// 打印AST到缓冲区
+	err = printer.Fprint(&buf, fset, file)
+	if err != nil {
+		fmt.Println("Error writing buffer:", err)
+		return
+	}
+
+	// 使用 go/format 格式化代码
+	formattedCode, err := format.Source(buf.Bytes())
+	if err != nil {
+		fmt.Println("Error formatting code:", err)
+		return
+	}
+
+	// 将格式化后的代码写入文件
+	if _, err := f.Write(formattedCode); err != nil {
+		fmt.Println("Error writing formatted code:", err)
 		return
 	}
 
 	fmt.Println("Code generation completed successfully!")
 }
 
-// 收集与枚举类型相关的常量
+// collectEnumValues 收集枚举类型的常量值
 func collectEnumValues(file *ast.File, enumType string) []string {
 	var values []string
 
@@ -112,7 +133,7 @@ func collectEnumValues(file *ast.File, enumType string) []string {
 	return values
 }
 
-// 检查是否存在 Values 和 String 方法
+// checkExistingMethods 检查是否存在 Values 和 String 方法
 func checkExistingMethods(file *ast.File, enumType string) (bool, bool) {
 	hasValuesMethod := false
 	hasStringMethod := false
@@ -139,7 +160,7 @@ func checkExistingMethods(file *ast.File, enumType string) (bool, bool) {
 	return hasValuesMethod, hasStringMethod
 }
 
-// 替换已有方法
+// replaceMethod 替换已有方法
 func replaceMethod(file *ast.File, enumType string, methodName string, newMethod *ast.FuncDecl) {
 	for i, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
@@ -155,19 +176,25 @@ func replaceMethod(file *ast.File, enumType string, methodName string, newMethod
 	}
 }
 
-// 使用 AST 生成 Values() 方法
+// generateValuesMethodAST 使用 AST 生成 Values() 方法
 func generateValuesMethodAST(enumType string, values []string) *ast.FuncDecl {
-	// 创建返回的数组类型：[]<enumType>
+	// 创建返回的数组类型：[]string
 	returnType := &ast.ArrayType{
 		Elt: &ast.Ident{
-			Name: enumType,
+			Name: "string",
 		},
 	}
 
-	// 创建 return 语句
+	// 创建 return 语句，调用每个枚举值的 String() 方法
 	valueList := make([]ast.Expr, len(values))
 	for i, v := range values {
-		valueList[i] = &ast.Ident{Name: v}
+		valueList[i] = &ast.CallExpr{
+			Fun: &ast.SelectorExpr{
+				X:   &ast.Ident{Name: v},
+				Sel: &ast.Ident{Name: "String"},
+			},
+			Args: []ast.Expr{},
+		}
 	}
 
 	returnStmt := &ast.ReturnStmt{
@@ -206,7 +233,7 @@ func generateValuesMethodAST(enumType string, values []string) *ast.FuncDecl {
 					{
 						Type: &ast.ArrayType{
 							Elt: &ast.Ident{
-								Name: enumType,
+								Name: "string",
 							},
 						},
 					},
@@ -219,23 +246,14 @@ func generateValuesMethodAST(enumType string, values []string) *ast.FuncDecl {
 	return funcDecl
 }
 
-// 使用 AST 生成 String() 方法
+// generateStringMethodAST 使用 AST 生成 String() 方法
 func generateStringMethodAST(enumType string) *ast.FuncDecl {
-	// 创建函数体：return fmt.Sprintf("%v", g)
+	// 创建函数体：return string(g)
 	returnStmt := &ast.ReturnStmt{
 		Results: []ast.Expr{
 			&ast.CallExpr{
-				Fun: &ast.SelectorExpr{
-					X:   &ast.Ident{Name: "fmt"},
-					Sel: &ast.Ident{Name: "Sprintf"},
-				},
-				Args: []ast.Expr{
-					&ast.BasicLit{
-						Kind:  token.STRING,
-						Value: "\"%v\"",
-					},
-					&ast.Ident{Name: "g"},
-				},
+				Fun:  &ast.Ident{Name: "string"},
+				Args: []ast.Expr{&ast.Ident{Name: "g"}},
 			},
 		},
 	}
