@@ -1,7 +1,6 @@
 package enum
 
 import (
-	"fmt"
 	"testing"
 )
 
@@ -14,16 +13,16 @@ const (
 	unknown gender = "unknown"
 )
 
-func (g gender) Values() []gender {
-	return []gender{
-		male,
-		female,
-		unknown,
+func (g gender) Values() []string {
+	return []string{
+		male.String(),
+		female.String(),
+		unknown.String(),
 	}
 }
 
 func (g gender) String() string {
-	return fmt.Sprintf("%v", g)
+	return string(g)
 }
 
 func TestEnum(t *testing.T) {
